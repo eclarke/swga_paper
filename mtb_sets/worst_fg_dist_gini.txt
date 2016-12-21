@@ -1,0 +1,2 @@
+_id	score	set_size	bg_dist_mean	fg_max_dist	fg_dist_mean	fg_dist_std	fg_dist_gini	scoring_fn	primers
+70336	0.008741141254982465	2	809719.014702	92071	11369.925257731958	14512.519584643383	0.6225078990332148	(fg_dist_mean * fg_dist_gini) / (bg_dist_mean)	CGATATTGC,CGTTACCG

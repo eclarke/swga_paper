@@ -1,0 +1,438 @@
+---
+title: "SWGA Figures"
+author: "Erik Clarke"
+date: "October 3, 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(forcats)
+library(ggrepel)
+```
+
+# Wolbachia 
+
+## Percent Wolbachia
+
+```{r wolb-percent-prelude}
+wolb.pct <- within(list(), {
+  wd <- readxl::read_excel("WolbachiaDrosophilaResults.xlsx")
+
+  wd <- wd %>% 
+    separate(Sample, into = c("Set", "Rep"), sep = "-", fill="right", remove = FALSE) %>%
+    gather(key, value, Percent_Drosophila:Percent_Unmapped)
+  
+  wd$Set <- as.factor(plyr::revalue(
+    wd$Set, 
+    c("Leichty"="Leichty et al.",
+      "High_Tm_Score"="TmH/Selective",
+      "High_Tm_Gini"="TmH/Even",
+      "Standard_Tm_Score"="TmL/Selective",
+      "Standard_Tm_Gini"="TmL/Even",
+      "Standard_Tm_Gini_20ng"="TmL/Even 20ng",
+      "Unamplified"="ø")))
+  wd$Set <- factor(wd$Set, levels=levels(wd$Set)[c(1,4,3,7,5,6,2)])
+  wd$key <- as.factor(plyr::revalue(
+    wd$key,
+    c("Percent_Drosophila"="dros",
+      "Percent_Wolbachia"="wolb",
+      "Percent_Unmapped"="unmapped")
+  ))
+  
+  # wd$key <- reorder(wd$key, sample(wd$value))
+  wd$key = factor(wd$key, levels=levels(wd$key)[c(3,1,2)], ordered = TRUE)
+  wd <- wd %>% arrange(key)
+})
+
+```
+
+```{r wolb-percent-figure}
+invisible(within(wolb.pct, {
+  p <- ggplot(wd, aes(Sample, value, fill=factor(key))) + 
+    geom_bar(position=position_fill(), stat="identity") +
+    scale_y_continuous(expand=c(0,0), labels = scales::percent) +
+    scale_x_discrete(expand=c(0,0)) +
+    scale_fill_manual(
+      "Percent reads mapped", 
+      labels=c("unmapped"="Unmapped", "wolb"="Wolbachia", "dros"="Drosophila"),
+      values=c("dros"="#d9e1e8", "wolb"="#2b90d9", "unmapped"="#9baec8"),
+      guide=guide_legend(title.position = "top")) +
+    facet_grid(. ~ Set, scales="free_x", switch="x", space="free") +
+    theme_bw(base_size = 12) +
+    theme(
+      axis.text.x=element_blank(),
+      axis.ticks.x=element_blank(),
+      axis.title.x=element_blank(),
+      axis.title.y=element_blank(),
+      strip.text.x=element_text(size=8),
+      strip.background = element_blank(),
+      panel.spacing.x=unit(1.5, "line"),
+      legend.position="top",
+      legend.direction="horizontal",
+      legend.justification="left",
+      plot.margin=unit(rep(0.1, 4), "line")
+    )
+  plot(p)
+  ggsave("../Fig_PercentReadsMappingToWolbachiaAndDrosophila.pdf", height=4.5, width=8)
+}))
+```
+
+
+## Rarefaction curves
+
+```{r wolb-rarecurve-prelude}
+wolb.rc <- within(list(), {
+  dat <- read.csv("Wb10xRarefaction.csv")
+  levels(dat$primerset) <- c(
+    "TmL/Even (20ng)",
+    "Unamplified",
+    "Leichty et al.",
+    "TmH/Even",
+    "TmH/Selective",
+    "TmL/Even",
+    "TmL/Selective",
+    "Unamplified2"
+  )
+  # Remove failed unamplified sample
+  dat <- filter(dat, primerset != "Unamplified2") %>% droplevels()
+  # Add replicate info
+  dat <- dat %>% 
+    distinct(primerset, BamFile) %>%
+    select(primerset, BamFile)%>%
+    group_by(primerset) %>% 
+    mutate(replicate = as.factor(seq_along(BamFile))) %>%
+    right_join(dat)
+  unamplified <- filter(dat, primerset == "Unamplified") %>% droplevels()
+  unamplified <- unamplified %>% ungroup %>% 
+    select(-c(primerset))
+  unamplified$replicate <- NA
+  
+  dat <- dat %>% filter(primerset != "Unamplified") %>% droplevels() %>%
+    ungroup() %>%
+    mutate(primerset = fct_relevel(
+      primerset, 
+      "TmL/Even",
+      "TmL/Even (20ng)",
+      "TmL/Selective",
+      "TmH/Even",
+      "TmH/Selective",
+      "Leichty et al."))
+})
+```
+
+```{r wolb-rarecurve-figure}
+invisible(within(wolb.rc, {
+  p <- ggplot(dat, aes(x=Bases_sequenced/1e6, y=Proportion_Genome_At_10x, color=replicate)) +
+    geom_line(data = unamplified, linetype=2, size=0.8) +
+    geom_line(size=0.9) +
+    ggthemes::scale_color_calc(na.value = "grey20", guide=FALSE) +
+    # scale_color_discrete(na.value = "grey20", guide=FALSE, l = 65) +
+    scale_y_continuous("Percent of genome covered (10x)", limits=c(0,1), labels=scales::percent) + 
+    scale_x_log10("Sequencing effort (Mbp sequenced)", limits=c(10, 1000), expand=c(0,0)) +
+    annotation_logticks(sides="b", size=0.4, color="grey20") +
+    facet_wrap(~ primerset, scales="free_x") +
+    theme_bw(base_size=12) +
+    theme(
+      panel.spacing.x=unit(1.5, "line"),
+      plot.margin=unit(c(0.1,1,0.1,0.1), "line"),
+      strip.background = element_blank()
+      )
+  plot(p)
+  ggsave("../Fig_WolbDros_10X_Rarefaction.pdf", height=4.5, width=6)
+}))
+```
+
+# Mycobacterium
+
+## Rarefaction curves
+
+```{r myco-rarecurve-prelude}
+myco.rc <- within(list(), {
+  # browser()
+  dat.10x <- read.csv("Mtb10xRarefaction.csv")
+  sets <- readxl::read_excel(
+    "../ClarkeSundararaman_SuppTables_v3.1.xlsx", 
+    sheet="Table S2- Mycobacterium Sets") %>%
+    mutate(ID=as.character(ID))
+  dat.10x <- dat.10x %>%
+    separate(File_name, c("ID", "replicate"), extra = "drop") %>%
+    mutate(ID = ifelse(ID == "5914179", "5194179", ID))
+  dat.10x <- left_join(dat.10x, sets) 
+  dat.10x <- dat.10x %>%
+    mutate(
+      Name = ifelse(is.na(Name), ID, Name)) %>%
+    select(bases_sequenced, Proportion_genome_covered_10x, Name, replicate, Gini, Ratio, Size) %>%
+    droplevels()
+  # browser()
+  dat.10x <- dat.10x %>%
+    mutate(Name = fct_relevel(
+      factor(Name), 
+      "Mtb1", "Mtb2", "Mtb3", "Mtb4", "Mtb5", "Mtb6", "Mtb7", "Mtb8", "Mtb9", "Mtb10"))
+
+  unamplified.10x <- dat.10x %>% filter(Name == "Unamplified") %>%
+    select(-c(Name))
+  unamplified.10x$replicate <- NA
+  unamplified.10x.est <- dat.10x %>% filter(Name == "estimated") %>%
+    select(-c(Name))
+  unamplified.10x.est$replicate <- NA
+  dat.10x <- dat.10x %>% filter(!Name %in% c("Unamplified", "estimated")) %>% droplevels()
+  
+  
+  # 1X Data
+  
+  dat <- read.csv("MTb1xRarefaction.csv", row.names = 1) %>%
+    separate(file_name, c("ID", "replicate"), extra = "drop") %>%
+    left_join(sets) %>%
+    mutate(
+      Name = ifelse(is.na(Name), ID, Name)) %>%
+    select(bases_sequenced, percent_genome_covered, Name, replicate, Gini, Ratio, Size) %>%
+    droplevels() %>%
+    mutate(Name = fct_relevel(
+      factor(Name), 
+      "Mtb6", "Mtb9", "Mtb4", "Mtb8", "Mtb7", "Mtb2", "Mtb5", "Mtb1", "Mtb3", "Mtb10"))
+      # "Mtb1", "Mtb2", "Mtb3", "Mtb4", "Mtb5", "Mtb6", "Mtb7", "Mtb8", "Mtb9", "Mtb10"))
+  
+  unamplified <- dat %>% filter(Name=="Unamplified") %>% select(-c(Name))
+  unamplified$replicate <- NA
+  dat <- dat %>% filter(Name != "Unamplified") %>% droplevels()
+})
+```
+
+```{r myco-rarecurve-10x}
+invisible(within(myco.rc, {
+  p <- ggplot(filter(dat.10x, replicate != "merged"), aes(x=bases_sequenced/1e6, y=Proportion_genome_covered_10x, color=replicate)) +
+    geom_line(data = unamplified.10x.est, linetype=2, size=0.8) +
+    geom_line(size=0.9) +
+    ggthemes::scale_color_calc(na.value = "grey20", guide=FALSE) +
+    # scale_color_discrete(na.value = "grey20", guide=FALSE, l = 65) +
+    scale_y_continuous("Percent of genome covered (10x)", limits=c(0,0.05), labels=scales::percent) + 
+    scale_x_log10("Sequencing effort (Mbp sequenced)", limits=c(10, 1000), expand=c(0,0)) +
+    annotation_logticks(sides="b", color="grey20", size=0.4) +
+    facet_wrap(~ Name, nrow=3, scales="free_x") +
+    theme_bw(base_size=12) +
+    theme(
+      panel.spacing.x=unit(1.5, "line"),
+      plot.margin=unit(c(0.1,1,0.1,0.1), "line")
+      )
+  plot(p)
+  ggsave("../Fig_MtbRarefactionCurves10x.pdf", width=6, height=4.5)
+}))
+```
+
+```{r myco-rarecurve-10x-goodsets}
+invisible(within(myco.rc, {
+  good.sets <- c("Mtb4", "Mtb6", "Mtb8", "Mtb9")
+  .merged <- filter(dat.10x, replicate == "merged")
+  .dat <- filter(dat.10x, Name %in% good.sets, replicate != "merged")
+  
+
+  p <- ggplot(.dat, aes(x=bases_sequenced/1e6, y=Proportion_genome_covered_10x, color=replicate, group=replicate)) +
+    geom_line(data = unamplified.10x.est, linetype=2, size=0.8) +
+    geom_line(size=0.8) +
+    geom_line(data=.merged,linetype=12, size=0.8) +
+    ggthemes::scale_color_calc(na.value = "grey20", guide=FALSE) +
+    
+    # scale_color_discrete(na.value = "grey20", guide=FALSE, l = 65) +
+    scale_y_continuous("Percent of genome covered (10x)", limits=c(0,1), labels=scales::percent) + 
+    scale_x_continuous("Sequencing effort (Mbp sequenced)", limits=c(10, 1500), expand=c(0,0)) +
+    facet_wrap(~ Name, nrow=1) +
+    theme_bw(base_size=12) +
+    theme(
+      panel.spacing.x=unit(1.5, "line"),
+      plot.margin=unit(c(0.1,1,0.1,0.1), "line"),
+      strip.background = element_blank()
+      )
+  plot(p)
+  ggsave("../Fig_MtbRarefactionCurves10x-goodsets.pdf", width=6, height=3.5)
+}))
+```
+
+
+```{r myco-rarecurve-1x}
+invisible(within(myco.rc, {
+  # browser()
+  .dat <- filter(dat, replicate != "merged") %>%
+    mutate(Ratio = sprintf("Ratio: %1.1e", Ratio)) %>%
+    mutate(Gini = sprintf("Gini: %1.2f", Gini)) %>%
+    mutate(Size = sprintf("Size: %d", Size))
+  .unamplified <- select(unamplified, -c(Gini, Ratio, Size))
+  .labels <- .dat %>% select(Name, Gini, Ratio, Size) %>% distinct()
+  # browser()
+  p <- ggplot(.dat, aes(x=bases_sequenced/1e6, y=percent_genome_covered, color=replicate)) +
+    geom_line(data = .unamplified, linetype=2, size=0.8) +
+    geom_line(size=0.9) +
+    ggthemes::scale_color_calc(na.value = "grey20", guide=FALSE) +
+    # scale_color_discrete(na.value = "grey20", guide=FALSE, l = 65) +
+    scale_y_continuous("Percent of genome covered (1x)", limits=c(0,1), labels=scales::percent) + 
+    scale_x_continuous("Sequencing effort (Mbp sequenced)", limits=c(0, 200), breaks=c(0,100,200), expand=c(0,0)) +
+    geom_text(
+      data=.labels, x=10, y=1, color="grey20", vjust=1, hjust=0, size=2.5,
+      aes(label=sprintf("%s\n%s\n%s", Ratio, Gini, Size))) +
+    facet_wrap(~ Name, nrow=3) +
+    theme_bw(base_size=12) +
+    theme(
+      strip.text.x = element_text(),
+      strip.background = element_blank(),
+      panel.spacing.x=unit(1.1, "line"),
+      plot.margin=unit(c(0.1,1,0.1,0.1), "line")
+      )
+  plot(p)
+  ggsave("../Fig_MtbRarefactionCurves1x.pdf", width=6, height=4.5)
+}))
+```
+
+## Set distribution
+
+```{r myco-setdist-prelude}
+myco.setd <- within(list(), {
+  # This is too large a file to be stored on GitHub; download from zenodo here:
+  # https://zenodo.org/record/216676/files/sets_lt_5k.csv.gz
+  # doi:10.5281/zenodo.216676
+  sets.5k <- read_csv("mtb_sets/sets_lt_5k.csv", col_names = TRUE) %>% rename("ID"=id)
+  bad_gini <- read_tsv("mtb_sets/worst_fg_dist_gini.txt") %>% rename("ID"=`_id`)
+  bad_mean <- read_tsv("mtb_sets/worst_fg_dist_mean.txt") %>% rename("ID"=`_id`)
+  
+  sets.meta <- readxl::read_excel(
+    "../ClarkeSundararaman_SuppTables_v3.1.xlsx", 
+    sheet="Table S2- Mycobacterium Sets") %>%
+    mutate(ID=as.character(ID))
+  
+  conv.hull <- with(sets.5k, chull(fg_dist_mean, fg_dist_gini))
+  sets.5k$hull <- FALSE
+  sets.5k$hull[conv.hull] <- TRUE
+})
+```
+
+```{r myco-setdist-plot}
+invisible(within(myco.setd, {
+  hull <- filter(sets.5k, hull) %>%
+    mutate(ID=as.character(ID)) %>%
+    left_join(sets.meta)
+  
+  p <- ggplot(sets.5k, aes(fg_dist_mean, fg_dist_gini)) +
+    geom_hex(color="white") +
+    geom_point(data=hull, color="red") +
+    # viridis::scale_fill_viridis(option="C", guide=FALSE) +
+    scale_fill_continuous("Sets") +
+    theme_bw(base_size = 12) +
+    theme(
+      aspect.ratio=1,
+      legend.justification="top",
+      plot.margin = unit(rep(0.1,4), "lines")
+          ) +
+    geom_label_repel(data=hull, aes(label=Name), segment.color = "white") +
+    labs(x="Mean binding distance on target (bp)",
+         y="Gini index")
+    # ggtitle("Sets with fg_dist_mean < 5000 bp") 
+  plot(p)
+  ggsave("../Fig_MtbSetsChosen.pdf", width=5.5, height=5)
+}))
+```
+
+```{r myco-score-sets-plot}
+invisible(within(myco.rc, {
+  # browser()
+  at_50 <- dat %>% group_by(Name, replicate) %>% 
+    summarize(
+      max_bp_lt_50=max(bases_sequenced[bases_sequenced<50e6]),
+      max_pct_lt_50=max(percent_genome_covered[bases_sequenced == max_bp_lt_50]),
+      min_bp_gt_50=min(bases_sequenced[bases_sequenced>50e6]),
+      min_pct_gt_50=max(percent_genome_covered[bases_sequenced == min_bp_gt_50]))
+  at_50 <- at_50 %>% 
+    mutate(
+      rise = min_pct_gt_50 - max_pct_lt_50,
+      run = min_bp_gt_50 - max_bp_lt_50,
+      m = rise/run,
+      est_50 = m*(50e6) - (m*max_bp_lt_50) + max_pct_lt_50) %>%
+    group_by(Name) %>%
+    summarize(
+      mean = mean(est_50, na.rm = TRUE),
+      median = median(est_50, na.rm = TRUE),
+      sd = sd(est_50, na.rm = TRUE))
+  # browser()
+  at_50 <- left_join(at_50, sets) %>%
+    mutate(CtrlCase = grepl("\\d+", Name))
+  colnames(at_50) <- make.names(colnames(at_50)) 
+
+
+  p <- ggplot(at_50, aes(Ratio, median)) + 
+    # geom_smooth(
+    #   se=FALSE, method = "glm", formula=(y ~ log(x)),
+    #   color = "red", size=0.4) +
+    geom_smooth(
+      se=FALSE, method = "loess", span=1.1,
+      color = "grey30", size=0.5, linetype=9) +
+    geom_pointrange(aes(ymax=median+sd, ymin=median-sd, fill=CtrlCase), shape=21, fatten = 5, size=0.4, color="grey20") +
+    geom_label_repel(aes(label=Name), force = 5) +
+    # geom_point(shape=21, size=2, aes(fill=Name)) +
+    scale_fill_manual(values=c("FALSE"="#fdae61", "TRUE"="#abd9e9"), guide=FALSE)+
+    # ggthemes::scale_fill_pander(guide=FALSE) +
+    scale_y_continuous(labels=scales::percent, limits=c(0.05, 0.35)) +
+    scale_x_continuous(limits=c(0, 0.04), expand=c(0,0)) +
+    theme_classic(base_size = 13) +
+    theme(plot.margin = unit(c(0.1,1,0.1,0.1), "lines")) +
+    labs(
+      y="Percent genome covered at 1x (50Mbp depth)", 
+      x="Target to background ratio")
+  plot(p)
+  ggsave("../Fig_MtbCoverageByRatio.pdf", width=6.5, height=4)
+}))
+```
+
+## Mtb coverage plots
+
+```{r myco-cov-prelude}
+myco.cov <- within(list(), {
+  mtbcov <- read.csv("MTbCoverage.csv") %>%
+    filter(!type %in% c("MTb4", "MTb6", "MTb8", "MTb9")) %>%
+    mutate(type = fct_recode(
+      type, "MTb10"="5699436",
+      "MTb4"="MTb4-Reseq",
+      "MTb6"="MTb6-Reseq",
+      "MTb8"="Mtb8-Reseq",
+      "MTb9"="MTb9-Reseq"
+    ))
+})
+```
+
+```{r myco-cov-plots}
+invisible(within(myco.cov, {
+  # browser()
+  unamplified.bam.coverage <- mtbcov[mtbcov$type == 'Unamplified',]
+  unamplified.bam.coverage$rollingmean <- zoo::rollmean(unamplified.bam.coverage$norm, 10, fill = 'extend')
+  # rollingmean.small.bam.coverage <- ddply(small.bam.coverage, .(name), function(x)
+  # {x$rollingmean <- rollmean(x$norm, 10, fill = 'extend')
+  # return(x)})
+  
+  mtbcov <- mtbcov %>% 
+    filter(type != "Unamplified") %>%
+    mutate(type=fct_relevel(type, "MTb4", "MTb6", "MTb8", "MTb9", "MTb1", "MTb2", "MTb3", "MTb5", "MTb7", "MTb10"))
+  
+  p <- ggplot(mtbcov, aes(y = 1000000000*rollingmean, x = position, color = color)) +
+    geom_line() +
+    scale_color_manual(values = c('blue', 'dark green', 'red', 'black'), guide=FALSE) +
+    facet_grid(type ~ .) +
+    geom_line(data = transform(unamplified.bam.coverage, type = NULL), aes(y = 1000000000*rollingmean, x = position, color = 'Unamplified')) +
+    scale_y_log10(breaks=c(1,10,100,1000), "Normalized Coverage") +
+    scale_x_continuous(breaks = seq(0, max(mtbcov$position), 1000000),  labels=scales::comma, "Position (bp)", expand=c(0,0)) +
+    coord_cartesian(ylim=c(1, 2000)) +
+    theme_bw() +
+    theme(strip.text.y=element_text(angle=0)) 
+  
+  plot(p)
+  
+  
+  ggsave("../Fig_MTbNormalizedCoverage.pdf", width=7.5, height=10)
+  # browser()
+  # p <- mtbcov %>% filter(type %in% c("MTb9-Reseq")) %>%
+  #   ggplot(aes(x=position, y=1e9*rollingmean, color=color)) +
+  #   scale_y_continuous(trans='log1p') +
+  #   geom_line() +
+  #   facet_grid(type ~ .)
+  # plot(p)
+}))
+```
+
+
